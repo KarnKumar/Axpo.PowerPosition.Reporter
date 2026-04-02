@@ -127,7 +127,7 @@ namespace PowerPosition.Reporter.Services
             {
             var volumes = trade.Periods
                 .OrderBy(p => p.Period)
-                .Select(p => p.Volume.ToString("F1").PadLeft(7));
+                .Select(p => p.Volume.ToString("F1").PadLeft(7)); // F1 is to give space padding.
 
             await runLog.WriteAsync ("INF", $"Trade {trade.TradeId}:");
             await runLog.WriteAsync ("INF", $"[ {string.Join (" | ", volumes)} ]");
