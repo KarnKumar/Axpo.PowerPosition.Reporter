@@ -94,13 +94,13 @@ Configuration is managed via `appsettings.json`.
 * `OutputPath` can be overridden via CLI:
 
   ```bash
-  --Reporting:OutputPath "C:\Reports"
+  --ReportSettings:OutputPath "C:\Reports"
   ```
 
 * `IntervalMinutes` can be overridden via CLI:
 
   ```bash
-  --Reporting:IntervalMinutes 30
+  --ReportSettings:IntervalMinutes 30
   ```
 
 * Serilog controls application-wide logging levels (console or future sinks).
