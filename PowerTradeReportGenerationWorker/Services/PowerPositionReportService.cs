@@ -152,10 +152,6 @@ namespace PowerPosition.Reporter.Services
                     LocalTime = timeLabel,
                     Volume = totalVolume
                     });
-
-                _logger.LogDebug (
-                    "Period {Period:D2} → {LocalTime}  Volume = {Volume:F2}",
-                    periodNumber, timeLabel, totalVolume);
                 }
 
             return result;
