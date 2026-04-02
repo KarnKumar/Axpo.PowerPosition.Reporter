@@ -22,15 +22,10 @@ try
     // Config
     builder.Configuration.AddCommandLine (args);
 
-    builder.Services.AddSerilog (( services, loggerConfiguration ) =>
-    {
-        loggerConfiguration
-            .ReadFrom.Configuration (builder.Configuration)
-            .ReadFrom.Services (services)
-            .Enrich.FromLogContext ()
-            .MinimumLevel.Override ("Microsoft", LogEventLevel.Warning)
-            .WriteTo.Console (outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}");
-    });
+    builder.Services.AddSerilog (( services, lc ) => lc
+    .ReadFrom.Configuration (builder.Configuration)
+    .Enrich.FromLogContext ()
+    .WriteTo.Console (outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}"));
 
     // validation to check required settings are present and valid at startup
     builder.Services.AddOptions<ReportSettings> ()
@@ -54,8 +49,10 @@ try
     // take system timezone 
     builder.Services.AddSingleton (_ => TimeZoneInfo.Local);
     builder.Services.AddSingleton<ITimeProvider, ReportTimeProvider> ();
-     
-     builder.Services.AddSingleton<IPowerService, PowerService> ();
+
+    // Assumption : PowerService.dll is not thread-safe, so we register it as transient to get a new instance for each extract run.
+    builder.Services.AddTransient<IPowerService, PowerService> ();
+
      builder.Services.AddSingleton<IPowerPositionReportService, PowerPositionReportService> ();
      builder.Services.AddSingleton<ICsvExportService, CsvExportService> ();
      builder.Services.AddSingleton<IExtractLoggerFactory, ExtractLoggerFactory> ();

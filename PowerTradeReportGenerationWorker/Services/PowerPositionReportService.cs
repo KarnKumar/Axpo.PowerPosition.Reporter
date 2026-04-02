@@ -1,7 +1,6 @@
 ﻿using Axpo;
 using PowerPosition.Reporter.Models;
 using PowerPosition.Reporter.Services.Logger;
-using PowerPosition.Reporter.Services.TimeProvider;
 
 namespace PowerPosition.Reporter.Services
     {

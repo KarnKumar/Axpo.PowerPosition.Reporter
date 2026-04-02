@@ -69,8 +69,7 @@ namespace PowerPosition.Reporter.Services.Csv
             await writer.FlushAsync ();
 
             _logger.LogInformation (
-                "# Power Position Report Generated successfully! File : {FileName}",
-                fileName);
+                "# Power Position Report Generated successfully! Path : {fullPath}",fullPath);
 
             return fullPath;
             }
