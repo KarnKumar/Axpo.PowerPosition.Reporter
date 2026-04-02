@@ -136,7 +136,7 @@ namespace PowerPosition.Reporter.Services
         /// Converts the aggregated period dictionary into an ordered list of
         /// <see cref="PowerTradePosition"/> records with HH:mm labels.
         /// </summary>
-        private List<PowerTradePosition> MapToPositions ( Dictionary<int, double> aggregated )
+        private static List<PowerTradePosition> MapToPositions ( Dictionary<int, double> aggregated )
             {
             var dayStart = new TimeOnly(23, 0);
             var result = new List<PowerTradePosition>(24);

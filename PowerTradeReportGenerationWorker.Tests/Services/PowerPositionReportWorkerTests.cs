@@ -9,7 +9,7 @@ using PowerPosition.Reporter.Services.Logger;
 using PowerPosition.Reporter.Services.Logging;
 using PowerPosition.Reporter.Services.TimeProvider;
 
-namespace PowerPosition.Reporter.Tests;
+namespace PowerPosition.Reporter.Tests.Services;
 
 public sealed class PowerPositionReportWorkerTests : IDisposable
     {

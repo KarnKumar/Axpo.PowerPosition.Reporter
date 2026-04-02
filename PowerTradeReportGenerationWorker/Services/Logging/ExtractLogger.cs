@@ -1,6 +1,7 @@
-﻿using System.Text;
+﻿using PowerPosition.Reporter.Services.Logger;
+using System.Text;
 
-namespace PowerPosition.Reporter.Services.Logger
+namespace PowerPosition.Reporter.Services.Logging
     {
     public sealed class ExtractLogger : IExtractLogger
         {

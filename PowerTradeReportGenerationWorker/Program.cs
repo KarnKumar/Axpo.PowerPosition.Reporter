@@ -5,8 +5,6 @@ using PowerPosition.Reporter.Services.Csv;
 using PowerPosition.Reporter.Services.Logging;
 using PowerPosition.Reporter.Services.TimeProvider;
 using Serilog;
-using Serilog.Events;
-
 
 Log.Logger = new LoggerConfiguration ()
     .MinimumLevel.Information ()

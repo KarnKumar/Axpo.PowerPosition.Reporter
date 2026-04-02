@@ -33,7 +33,7 @@ namespace PowerPosition.Reporter.Tests.Services
             var tradeDate = DateTime.Today;
             _powerServiceMock
                 .Setup (s => s.GetTradesAsync (tradeDate))
-                .ReturnsAsync (new List<PowerTrade> ());
+                .ReturnsAsync ([]);
 
             // Act
             var result = await _service.GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
@@ -106,7 +106,7 @@ namespace PowerPosition.Reporter.Tests.Services
             await act.Should ().ThrowAsync<Exception> ().WithMessage ("Network Error");
             }
 
-        private void SetVolume ( PowerTrade trade, int periodIndex, double volume )
+        private static void SetVolume ( PowerTrade trade, int periodIndex, double volume )
             {
             var period = trade.Periods[periodIndex];
             var type = period.GetType();
