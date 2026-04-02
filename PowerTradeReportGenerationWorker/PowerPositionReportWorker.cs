@@ -80,7 +80,7 @@ public sealed class PowerPositionReportWorker (
 
         var extractLocal = _timeProvider.LocalNow;
         _logger.LogInformation (
-            "===== Power Trade Extract started at {ExtractLocalTime:yyyy-MM-dd HH:mm} =====",
+            "======== Power Trade Extract started at {ExtractLocalTime:yyyy-MM-dd HH:mm} ========",
             extractLocal);
 
         EnsureDirectoriesExist (out var outputDir, out var logsDir);
@@ -91,7 +91,7 @@ public sealed class PowerPositionReportWorker (
         await using var runLog = _loggerFactory.Create(runLogFile);
 
         await runLog.WriteAsync ("INF",
-            $"=== Report Extract started at {extractLocal:yyyy-MM-dd HH:mm} ({_timeProvider.TimeZoneId}) ===");
+            $"======== Report Extract started at {extractLocal:yyyy-MM-dd HH:mm} ({_timeProvider.TimeZoneId}) ========");
 
         try
             {
@@ -141,8 +141,8 @@ public sealed class PowerPositionReportWorker (
             _settings.OutputPath, _settings.IntervalMinutes);
 
         _logger.LogInformation (
-            "Timezone={TimeZoneId} ({DisplayName}). Time now={LocalTime:yyyy-MM-dd HH:mm}",
-            _timeProvider.TimeZoneId, _timeProvider.ToString(), localNow);
+            "Timezone = {TimeZoneId}. Time now = {LocalTime:yyyy-MM-dd HH:mm}",
+            _timeProvider.TimeZoneId, localNow);
         }
 
     private void EnsureDirectoriesExist ( out string outputDir, out string logsDir )
