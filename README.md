@@ -174,7 +174,7 @@ dotnet test
 ## Sample Output 
 Power Trader Worker Console Window 
 
-<img width="857" height="235" alt="image" src="https://github.com/user-attachments/assets/39244197-f3fc-4e03-a757-2995d4020321" />
+<img width="874" height="460" alt="image" src="https://github.com/user-attachments/assets/ea9b7f54-b866-4dd6-b2f6-3e3e173e9880" />
 
 
 Power Trader Worker Console Window ( with some failed Extract attempts)
