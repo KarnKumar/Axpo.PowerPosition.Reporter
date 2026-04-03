@@ -1,5 +1,4 @@
-﻿using PowerPosition.Reporter.Services.Logger;
-using System.Text;
+﻿using System.Text;
 
 namespace PowerPosition.Reporter.Services.Logging
     {

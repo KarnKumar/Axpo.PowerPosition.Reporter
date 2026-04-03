@@ -1,4 +1,5 @@
 ﻿using PowerPosition.Reporter.Models;
+using PowerPosition.Reporter.Services.Logging;
 namespace PowerPosition.Reporter.Services
     {
 
@@ -15,7 +16,7 @@ namespace PowerPosition.Reporter.Services
         /// The calendar date for which to retrieve positions.
         /// Period 1 of this date begins at 23:00 on the PREVIOUS day.
         /// </param>
-        Task<IReadOnlyList<PowerTradePosition>> GetAggregatedPositionsAsync ( DateTime tradeDate, Logger.IExtractLogger runLog );
+        Task<IReadOnlyList<PowerTradePosition>> GetAggregatedPositionsAsync ( DateTime tradeDate, IExtractLogger runLog );
 
         }
     }

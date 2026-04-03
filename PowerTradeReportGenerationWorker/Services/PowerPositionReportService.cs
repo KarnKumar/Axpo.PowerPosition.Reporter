@@ -1,6 +1,6 @@
 ﻿using Axpo;
 using PowerPosition.Reporter.Models;
-using PowerPosition.Reporter.Services.Logger;
+using PowerPosition.Reporter.Services.Logging;
 
 namespace PowerPosition.Reporter.Services
     {
@@ -11,19 +11,12 @@ namespace PowerPosition.Reporter.Services
     ///
     /// PERIOD → LOCAL TIME MAPPING
     /// ───────────────────────────
-    /// The energy "gas day" for the configured timezone starts at 23:00 (11 pm) the previous day.
+    /// The configured timezone starts at 23:00 (11 pm) the previous day.
     /// Period 1  → 23:00
     /// Period 2  → 00:00
     /// Period 3  → 01:00
     /// ...
     /// Period 24 → 22:00
-    ///
-    /// Formula: localHour = (22 + periodNumber) % 24
-    /// This is DST-safe because we only produce a string label, not a real DateTime.
-    /// </summary>
-    /// <remarks>
-    /// If timeZone is null the system local timezone (TimeZoneInfo.Local) is used.
-    /// </remarks>
     public sealed class PowerPositionReportService ( IPowerService powerService,
                                 ILogger<PowerPositionReportService> logger) : IPowerPositionReportService
         {

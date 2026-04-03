@@ -1,5 +1,4 @@
-﻿using PowerPosition.Reporter.Services.Logger;
-
+﻿
 namespace PowerPosition.Reporter.Services.Logging
     {
     public interface IExtractLoggerFactory

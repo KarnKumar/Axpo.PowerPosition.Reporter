@@ -1,6 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-namespace PowerPosition.Reporter.Services.Logger
+﻿namespace PowerPosition.Reporter.Services.Logging
     {
     public interface IExtractLogger : IAsyncDisposable
         {

@@ -8,15 +8,12 @@ namespace PowerPosition.Reporter.Services.Csv
     public interface ICsvExportService
         {
         /// <summary>
-        /// Writes <paramref name="positions"/> to a CSV file named
-        /// <c>PowerPosition_YYYYMMDD_HHMM.csv</c> in the configured output folder.
+        /// WriteAsync writes the given positions to a CSV file in the configured output directory.
         /// </summary>
-        /// <param name="positions">The 24 hourly positions to write.</param>
-        /// <param name="extractTime">
-        /// The local time of the extract, used to build the filename.
-        /// </param>
-        /// <returns>The full path of the written CSV file.</returns>
-        Task<string> WriteAsync ( IReadOnlyList<PowerTradePosition> positions,
-                                DateTime extractTime );
+        /// <param name="positions"></param>
+        /// <param name="fileName"></param>
+        /// <returns></returns>
+        Task WriteAsync ( IReadOnlyList<PowerTradePosition> positions, string fileName);
         }
     }
+

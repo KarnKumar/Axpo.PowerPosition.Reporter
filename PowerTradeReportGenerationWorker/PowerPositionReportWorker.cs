@@ -1,5 +1,4 @@
 ﻿using Microsoft.Extensions.Options;
-using PowerPosition.Reporter.Models;
 using PowerPosition.Reporter.Services;
 using PowerPosition.Reporter.Services.Csv;
 using PowerPosition.Reporter.Services.Logging;
@@ -83,8 +82,8 @@ public sealed class PowerPositionReportWorker (
             "======== Power Trade Extract started at {ExtractLocalTime:yyyy-MM-dd HH:mm} ========",
             extractLocal);
 
+        // file base name and log file factory are created before the try/catch so we get a log file even if the extract fails early.
         EnsureDirectoriesExist (out var outputDir, out var logsDir);
-
         var fileBase    = BuildFileBase(extractLocal);
         var runLogFile  = Path.Combine(logsDir, $"{fileBase}.log");
 
@@ -105,10 +104,10 @@ public sealed class PowerPositionReportWorker (
                 $"Aggregation complete: {positions.Count} hourly positions produced");
 
             // Create CSV file - Power Position Report.
-            var filePath = await WriteCsvAsync(positions, extractLocal);
-            await runLog.WriteAsync ("INF", $"CSV written: {filePath} ({positions.Count} rows)");
+            await _csvExportService.WriteAsync (positions,fileBase);
 
-            await runLog.WriteAsync ("INF", $"=== Extract completed successfully. File: {filePath} ===");
+            await runLog.WriteAsync ("INF", $"=== Extract completed successfully. File: {fileBase}.csv ===");
+
             }
         catch ( OperationCanceledException ) when ( stoppingToken.IsCancellationRequested )
             {
@@ -165,13 +164,5 @@ public sealed class PowerPositionReportWorker (
      => extractLocal.Hour >= 23
          ? extractLocal.Date.AddDays (1)
          : extractLocal.Date;
-
-    private async Task<string> WriteCsvAsync (
-        IReadOnlyList<PowerTradePosition> positions,
-        DateTimeOffset extractLocal )
-        {
-        var extractTimeLocal = extractLocal.LocalDateTime;
-        return await _csvExportService.WriteAsync (positions, extractTimeLocal);
-        }
 
     }

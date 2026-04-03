@@ -44,8 +44,10 @@ try
         })
         .ValidateOnStart ();
 
-    // take system timezone 
-    builder.Services.AddSingleton (_ => TimeZoneInfo.Local);
+    // The business specification mandates Europe/ London (wall - clock / local time).
+    // TimeZoneInfo.Local is intentionally NOT used.
+    const string RequiredTimeZoneId = "Europe/London";
+    builder.Services.AddSingleton (_ => TimeZoneInfo.FindSystemTimeZoneById (RequiredTimeZoneId));
     builder.Services.AddSingleton<ITimeProvider, ReportTimeProvider> ();
 
     // Assumption : PowerService.dll is not thread-safe, so we register it as transient to get a new instance for each extract run.

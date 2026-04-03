@@ -3,7 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging;
 using Moq;
 using PowerPosition.Reporter.Services;
-using PowerPosition.Reporter.Services.Logger;
+using PowerPosition.Reporter.Services.Logging;
 using System.Reflection;
 
 namespace PowerPosition.Reporter.Tests.Services
