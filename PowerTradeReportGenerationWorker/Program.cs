@@ -50,11 +50,15 @@ try
 
     // Assumption : PowerService.dll is not thread-safe, so we register it as transient to get a new instance for each extract run.
     builder.Services.AddTransient<IPowerService, PowerService> ();
+    builder.Services.AddTransient<IPowerPositionReportService, PowerPositionReportService> ();
 
-     builder.Services.AddSingleton<IPowerPositionReportService, PowerPositionReportService> ();
-     builder.Services.AddSingleton<ICsvExportService, CsvExportService> ();
-     builder.Services.AddSingleton<IExtractLoggerFactory, ExtractLoggerFactory> ();
-     builder.Services.AddHostedService<PowerPositionReportWorker> ();
+    // Singleton is efficient → no need to recreate every time
+    builder.Services.AddSingleton<ICsvExportService, CsvExportService> ();
+
+    // standared pattern in .NET
+    builder.Services.AddSingleton<IExtractLoggerFactory, ExtractLoggerFactory> ();
+
+    builder.Services.AddHostedService<PowerPositionReportWorker> ();
 
     await builder.Build ().RunAsync ();
     }
