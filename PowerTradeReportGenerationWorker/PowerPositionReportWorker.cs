@@ -118,8 +118,8 @@ public sealed class PowerPositionReportWorker (
         catch ( Exception ex )
             {
             _logger.LogError (ex,
-                "Extract FAILED at {ExtractLocalTime:yyyy-MM-dd HH:mm} ({TimeZoneId}). Scheduler will retry.",
-                extractLocal, _timeProvider.TimeZoneId);
+     "Extract failed at {ExtractLocalTime:yyyy-MM-dd HH:mm} ({TimeZoneId}). Scheduler will re-run after the configured interval.",
+     extractLocal, _timeProvider.TimeZoneId);
 
             await runLog.WriteAsync ("ERR",
                 $"Extract FAILED at {extractLocal:yyyy-MM-dd HH:mm} ({_timeProvider.TimeZoneId}). Exception: {ex}");

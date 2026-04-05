@@ -49,7 +49,7 @@ namespace PowerPosition.Reporter.Services.Csv
                 foreach ( var position in positions )
                     {
                     csv.WriteField (position.LocalTime);
-                    var volumeInteger = Math.Round(position.Volume);
+                    var volumeInteger = Math.Round(position.Volume, MidpointRounding.AwayFromZero); // Round to nearest whole number for CSV output
                     csv.WriteField (volumeInteger.ToString ("0", CultureInfo.InvariantCulture));
                     await csv.NextRecordAsync ();
                     }

@@ -56,8 +56,7 @@ public sealed class PowerPositionReportWorkerTests : IDisposable
     private void SetupTimeProvider ( DateTimeOffset localNow )
         {
         _timeProviderMock.Setup (t => t.LocalNow).Returns (localNow);
-        _timeProviderMock.Setup (t => t.TimeZoneId).Returns ("UTC");
-        _timeProviderMock.Setup (t => t.ToString ()).Returns ("UTC (Coordinated Universal Time)");
+        _timeProviderMock.Setup (t => t.TimeZoneId).Returns ("Europe/London");
         }
 
     private PowerPositionReportWorker CreateWorker ( ) => new (
@@ -102,12 +101,12 @@ public sealed class PowerPositionReportWorkerTests : IDisposable
         }
 
     [Fact]
-    public async Task OnExtractFailure_WorkerSurvivesAndRemainsRunning ( )
+    public async Task OnPowerExtractServiceFailure_WorkerSurvivesAndRemainsRunning ( )
         {
         // Arrange
         _positionServiceMock
             .Setup (s => s.GetAggregatedPositionsAsync (It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
-            .ThrowsAsync (new InvalidOperationException ("Axle service unavailable"));
+            .ThrowsAsync (new InvalidOperationException ("Power service unavailable"));
 
         var worker = CreateWorker();
 
@@ -124,36 +123,49 @@ public sealed class PowerPositionReportWorkerTests : IDisposable
         }
 
     [Fact]
-    public async Task OnCancellation_WorkerStopsGracefully_WithoutThrowingException ( )
+        public async Task TradeDate_WhenLocalHourIs23_ResolvesToNextCalendarDay()
         {
-        // Arrange
-        var worker = CreateWorker();
-        using var cts = new CancellationTokenSource();
-
-        await worker.StartAsync (cts.Token);
-        await Task.Delay (200);    // let the first extract complete
-
-        // Act
-        cts.Cancel ();
-        var act = async () => await worker.StopAsync(CancellationToken.None);
-
-        // Assert
-        await act.Should ().NotThrowAsync (
-            "OperationCanceledException from the timer must be caught inside ExecuteAsync");
+            // Local clock reads 23:05 → period 1 of the NEXT trading day has started
+            var localNow = new DateTimeOffset(2024, 6, 15, 23, 5, 0, TimeSpan.Zero);
+            SetupTimeProvider(localNow);
+ 
+            DateTime? capturedTradeDate = null;
+            var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+ 
+            _positionServiceMock
+                .Setup(s => s.GetAggregatedPositionsAsync(
+                    It.IsAny<DateTime>(), It.IsAny<IExtractLogger>()))
+                .ReturnsAsync(Array.Empty<PowerTradePosition>())
+                .Callback<DateTime, IExtractLogger>((date, _) =>
+                {
+                    capturedTradeDate = date;
+                    extractDone.TrySetResult();
+                });
+ 
+            var worker = CreateWorker();
+ 
+            await worker.StartAsync(CancellationToken.None);
+            await extractDone.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await worker.StopAsync(CancellationToken.None);
+ 
+            capturedTradeDate.Should().Be(localNow.Date.AddDays(1),
+                "at 23:xx, period 1 of the next trading day has begun");
         }
-
     [Fact]
-    public async Task TradeDate_WhenLocalHourIs23_ResolvesToNextCalendarDay ( )
+    public async Task TradeDate_WhenLocalHourIs22_ResolvesToSameCalendarDay ( )
         {
-        // Arrange – clock at 23:05
-        var localNow = new DateTimeOffset(2024, 6, 15, 23, 05, 0, TimeSpan.Zero);
+        // 22:59 – still within the current trading day
+        var localNow = new DateTimeOffset(2024, 6, 15, 22, 59, 0, TimeSpan.Zero);
         SetupTimeProvider (localNow);
 
         DateTime? capturedTradeDate = null;
-        var extractDone = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
 
         _positionServiceMock
-            .Setup (s => s.GetAggregatedPositionsAsync (It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
             .ReturnsAsync (Array.Empty<PowerTradePosition> ())
             .Callback<DateTime, IExtractLogger> (( date, _ ) =>
             {
@@ -163,44 +175,188 @@ public sealed class PowerPositionReportWorkerTests : IDisposable
 
         var worker = CreateWorker();
 
-        // Act
         await worker.StartAsync (CancellationToken.None);
         await extractDone.Task.WaitAsync (TimeSpan.FromSeconds (5));
         await worker.StopAsync (CancellationToken.None);
 
-        // Assert
-        var expectedTradeDate = localNow.Date.AddDays(1); // 2024-06-16
-        capturedTradeDate.Should ().Be (expectedTradeDate,
-            "when the clock reads 23:xx, period 1 belongs to the following trading day");
+        capturedTradeDate.Should ().Be (localNow.Date,
+            "before 23:00, the trading day is still the current calendar day");
         }
 
     [Fact]
-    public async Task Cancellation_PreventsCsvWriteIfTriggeredEarly ( )
+    public async Task MultipleConsecutiveFailures_DoNotStopTheScheduler ( )
         {
-        // Arrange
-        var cts = new CancellationTokenSource();
-
+        // Every call throws – the scheduler must keep running regardless
         _positionServiceMock
-            .Setup (s => s.GetAggregatedPositionsAsync (It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
-            .Returns (async ( ) =>
-            {
-                await Task.Delay (500); // simulate long work
-                return Array.Empty<PowerTradePosition> ();
-            });
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ThrowsAsync (new TimeoutException ("Timeout"));
 
         var worker = CreateWorker();
 
-        // Act
-        await worker.StartAsync (cts.Token);
-        cts.Cancel ();
+        await worker.StartAsync (CancellationToken.None);
+        await Task.Delay (500);
+
+        worker.ExecuteTask!.IsCompleted.Should ().BeFalse (
+            "multiple consecutive failures must never terminate the background service");
 
         await worker.StopAsync (CancellationToken.None);
+        }
 
-        // Assert
-        _csvServiceMock.Verify (
-            c => c.WriteAsync (It.IsAny<IReadOnlyList<PowerTradePosition>> (), It.IsAny<string> ()),
-            Times.Never
-        );
+    [Fact]
+    public async Task OnCancellation_WorkerStopsGracefully_WithoutThrowingException ( )
+        {
+        var worker = CreateWorker();
+        using var cts = new CancellationTokenSource();
+
+        await worker.StartAsync (cts.Token);
+        await Task.Delay (200);
+
+        cts.Cancel ();
+        Func<Task> act = () => worker.StopAsync(CancellationToken.None);
+
+        await act.Should ().NotThrowAsync (
+            "OperationCanceledException from the timer must be caught inside ExecuteAsync");
+        }
+
+    [Fact]
+    public async Task CsvFileBase_HasCorrectFormat_PowerPositionYYYYMMDD_HHMM ( )
+        {
+        // Arrange: local clock = 2024-06-15 14:37
+        var localNow = new DateTimeOffset(2024, 6, 15, 14, 37, 0, TimeSpan.Zero);
+        SetupTimeProvider (localNow);
+
+        string? capturedFileBase = null;
+        _csvServiceMock
+            .Setup (c => c.WriteAsync (
+                It.IsAny<IReadOnlyList<PowerTradePosition>> (),
+                It.IsAny<string> ()))
+            .Callback<IReadOnlyList<PowerTradePosition>, string> (( _, fb ) =>
+                capturedFileBase = fb)
+            .Returns (Task.CompletedTask);
+
+        var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        _positionServiceMock
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ReturnsAsync (Array.Empty<PowerTradePosition> ())
+            .Callback<DateTime, IExtractLogger> (( _, _ ) => extractDone.TrySetResult ());
+
+        var worker = CreateWorker();
+        await worker.StartAsync (CancellationToken.None);
+        await extractDone.Task.WaitAsync (TimeSpan.FromSeconds (5));
+        await worker.StopAsync (CancellationToken.None);
+
+        capturedFileBase.Should ().NotBeNull ();
+        capturedFileBase.Should ().Be ("PowerPosition_20240615_1437",
+            "filename must follow the PowerPosition_YYYYMMDD_HHMM format from the spec");
+        }
+
+    [Fact]
+    public async Task OutputDirectory_IsCreated_IfItDoesNotExist ( )
+        {
+        // The temp dir itself doesn't exist yet
+        var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        _positionServiceMock
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ReturnsAsync (Array.Empty<PowerTradePosition> ())
+            .Callback<DateTime, IExtractLogger> (( _, _ ) => extractDone.TrySetResult ());
+
+        var worker = CreateWorker();
+        await worker.StartAsync (CancellationToken.None);
+        await extractDone.Task.WaitAsync (TimeSpan.FromSeconds (5));
+        await worker.StopAsync (CancellationToken.None);
+
+        Directory.Exists (_tempDir).Should ().BeTrue (
+            "the worker must create the configured output directory on first run");
+        }
+
+    [Fact]
+    public async Task LogsSubDirectory_IsCreated_AlongsideOutputDirectory ( )
+        {
+        var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        _positionServiceMock
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ReturnsAsync (Array.Empty<PowerTradePosition> ())
+            .Callback<DateTime, IExtractLogger> (( _, _ ) => extractDone.TrySetResult ());
+
+        var worker = CreateWorker();
+        await worker.StartAsync (CancellationToken.None);
+        await extractDone.Task.WaitAsync (TimeSpan.FromSeconds (5));
+        await worker.StopAsync (CancellationToken.None);
+
+        var logsDir = Path.Combine(_tempDir, "logs");
+        Directory.Exists (logsDir).Should ().BeTrue (
+            "a 'logs' sub-directory must be created for per-run log files");
+        }
+
+    [Fact]
+    public async Task ExtractLogFile_IsAlwaysCreated_EvenWhenExtractFails ( )
+        {
+        _positionServiceMock
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ThrowsAsync (new Exception ("Deliberate failure"));
+
+        var extractAttempted = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+        _runLogMock
+            .Setup (l => l.WriteAsync (It.IsAny<string> (), It.IsAny<string> ()))
+            .Callback (( ) => extractAttempted.TrySetResult ())
+            .Returns (Task.CompletedTask);
+
+        var worker = CreateWorker();
+        await worker.StartAsync (CancellationToken.None);
+        await extractAttempted.Task.WaitAsync (TimeSpan.FromSeconds (5));
+        await worker.StopAsync (CancellationToken.None);
+
+        _loggerFactoryMock.Verify (
+            f => f.Create (It.IsAny<string> ()),
+            Times.AtLeastOnce (),
+            "the per-run log file must be created even when the extract fails");
+        }
+    [Fact]
+    public async Task OnSuccessfulExtract_PositionsArePassedToCsvService ( )
+        {
+        var expectedPositions = new[]
+            {
+                new PowerTradePosition { LocalTime = "23:00", Volume = 150 },
+                new PowerTradePosition { LocalTime = "00:00", Volume = 150 }
+            };
+
+        _positionServiceMock
+            .Setup (s => s.GetAggregatedPositionsAsync (
+                It.IsAny<DateTime> (), It.IsAny<IExtractLogger> ()))
+            .ReturnsAsync (expectedPositions);
+
+        IReadOnlyList<PowerTradePosition>? capturedPositions = null;
+        var extractDone = new TaskCompletionSource(
+                TaskCreationOptions.RunContinuationsAsynchronously);
+
+        _csvServiceMock
+            .Setup (c => c.WriteAsync (
+                It.IsAny<IReadOnlyList<PowerTradePosition>> (),
+                It.IsAny<string> ()))
+            .Callback<IReadOnlyList<PowerTradePosition>, string> (( positions, _ ) =>
+            {
+                capturedPositions = positions;
+                extractDone.TrySetResult ();
+            })
+            .Returns (Task.CompletedTask);
+
+        var worker = CreateWorker();
+        await worker.StartAsync (CancellationToken.None);
+        await extractDone.Task.WaitAsync (TimeSpan.FromSeconds (5));
+        await worker.StopAsync (CancellationToken.None);
+
+        capturedPositions.Should ().NotBeNull ();
+        capturedPositions.Should ().BeEquivalentTo (expectedPositions,
+            "the worker must forward exactly the positions returned by the report service to CSV");
         }
     }
-        
+

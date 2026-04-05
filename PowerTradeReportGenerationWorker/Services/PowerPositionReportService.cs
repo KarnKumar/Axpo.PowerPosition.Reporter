@@ -32,7 +32,7 @@ namespace PowerPosition.Reporter.Services
             DateTime tradeDate, IExtractLogger runLog )
             {
 
-            var trades = await FetchTradesAsync(tradeDate);
+            var trades = await FetchTradesAsync(tradeDate,runLog);
 
             var aggregated = await AggregateByPeriodAsync(trades, runLog);
 
@@ -43,8 +43,7 @@ namespace PowerPosition.Reporter.Services
 
             return positions.AsReadOnly ();
             }
-
-        private async Task<List<PowerTrade>> FetchTradesAsync ( DateTime tradeDate )
+        private async Task<List<PowerTrade>> FetchTradesAsync ( DateTime tradeDate, IExtractLogger runLog )
             {
             _logger.LogInformation (
                 "Fetching trades from PowerService for date {TradeDate:yyyy-MM-dd}.", tradeDate);
@@ -65,6 +64,8 @@ namespace PowerPosition.Reporter.Services
                 _logger.LogError (ex,
                     "Failed to fetch trades for {TradeDate:yyyy-MM-dd}. " +
                     "No CSV will be written for this run.", tradeDate);
+                await runLog.WriteAsync ("INF", "Failed to fetch trades for {{TradeDate:yyyy-MM-dd}}." +
+                    " No CSV will be written for this run.");
                 throw;
                 }
             }
