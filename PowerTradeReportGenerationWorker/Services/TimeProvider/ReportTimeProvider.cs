@@ -10,12 +10,12 @@
          => TimeZoneInfo.ConvertTime (DateTimeOffset.UtcNow, _timeZone);
         public string TimeZoneId => _timeZone.Id;
 
-        public DateTime ToLocalTime ( DateTime dateTime )
+        public DateTime ToLocalTime ( DateTime dateTime ) => dateTime.Kind switch
             {
-            return dateTime.Kind == DateTimeKind.Utc
-                ? TimeZoneInfo.ConvertTimeFromUtc (dateTime, _timeZone)
-                : dateTime;
-            }
+                DateTimeKind.Utc => TimeZoneInfo.ConvertTimeFromUtc (dateTime, _timeZone),
+                _ => throw new ArgumentException (
+                         $"Only UTC DateTimes are supported. Received Kind={dateTime.Kind}.",
+                         nameof (dateTime))
+                };
         }
     }
-
