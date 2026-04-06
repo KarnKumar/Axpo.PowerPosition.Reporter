@@ -6,7 +6,6 @@ using Polly.Retry;
 
 namespace PowerPosition.Reporter.Services
     {
-
     /// <summary>
     /// Calls the provided PowerService.dll to fetch trades and aggregates
     /// volumes per configured timezone clock hour.
@@ -19,40 +18,24 @@ namespace PowerPosition.Reporter.Services
     /// Period 3  → 01:00
     /// ...
     /// Period 24 → 22:00
-    public sealed class PowerPositionReportService ( IPowerService powerService,
-                                ILogger<PowerPositionReportService> logger) : IPowerPositionReportService
+    /// </summary>
+    public sealed class PowerPositionReportService (
+        IPowerService powerService,
+        ILogger<PowerPositionReportService> logger ) : IPowerPositionReportService
         {
-
         private readonly IPowerService _powerService = powerService
             ?? throw new ArgumentNullException(nameof(powerService));
 
         private readonly ILogger<PowerPositionReportService> _logger = logger
             ?? throw new ArgumentNullException(nameof(logger));
 
-        // Retries up to 3 times with exponential backoff: 2s, 4s, 8s
-        private static readonly ResiliencePipeline RetryPipeline =
-            new ResiliencePipelineBuilder()
-                .AddRetry(new RetryStrategyOptions
-                    {
-                    MaxRetryAttempts = 3,
-                    Delay            = TimeSpan.FromSeconds(2),
-                    BackoffType      = DelayBackoffType.Exponential,
-                    UseJitter        = true,
-                    ShouldHandle     = new PredicateBuilder()
-                                           .Handle<HttpRequestException>()
-                                           .Handle<TaskCanceledException>()
-                                           .Handle<TimeoutException>()
-                                           .Handle<PowerServiceException>(),  // Handle Power Service exception here.
-                    
-                    })
-                .Build();
+        private const int MaxRetryAttempts = 3;
 
         /// <inheritdoc />
         public async Task<IReadOnlyList<PowerTradePosition>> GetAggregatedPositionsAsync (
             DateTime tradeDate, IExtractLogger runLog )
             {
-
-            var trades = await FetchTradesAsync(tradeDate,runLog);
+            var trades = await FetchTradesAsync(tradeDate, runLog);
 
             await LogTradeVolumesAsync (trades, runLog);
 
@@ -65,53 +48,71 @@ namespace PowerPosition.Reporter.Services
 
             return positions.AsReadOnly ();
             }
-        private async Task<List<PowerTrade>> FetchTradesAsync ( DateTime tradeDate, IExtractLogger runLog )
+
+        private async Task<List<PowerTrade>> FetchTradesAsync (
+            DateTime tradeDate, IExtractLogger runLog )
             {
             _logger.LogInformation (
                 "Fetching trades from PowerService for date {TradeDate:yyyy-MM-dd}.", tradeDate);
 
-            var retryCount = 0;
-
             try
                 {
+                // Pipeline is built per-call so OnRetry can capture runLog and tradeDate
+                var pipeline = BuildRetryPipeline(_logger, runLog, tradeDate);
 
-                var trades = await RetryPipeline.ExecuteAsync(async ct =>
-                {
-                    if (retryCount > 0)
-                        {
-                        _logger.LogWarning(
-                    "Retry attempt {Attempt} of 3 for trade date {TradeDate:yyyy-MM-dd}.",
-                    retryCount, tradeDate);
-
-                        await runLog.WriteAsync("WRN",
-                    $"Retry attempt {retryCount} of 3 for {tradeDate:yyyy-MM-dd}.");
-                        }
-
-                    var result = await _powerService.GetTradesAsync(tradeDate);
-                    retryCount++;
-
-                    return result;
-                });
+                var trades = await pipeline.ExecuteAsync(async ct =>
+                    await _powerService.GetTradesAsync(tradeDate));
 
                 var tradeList = trades?.ToList() ?? [];
 
                 _logger.LogInformation (
                     "Received {TradeCount} trade(s) from PowerService.", tradeList.Count);
 
-                  return tradeList;
+                return tradeList;
                 }
             catch ( Exception ex )
                 {
                 _logger.LogError (ex,
-                      "Failed to fetch trades for {TradeDate:yyyy-MM-dd} after all retry attempts. " +
-                      "No CSV will be written for this run.", tradeDate);
+                    "Failed to fetch trades for {TradeDate:yyyy-MM-dd} after all retry attempts. " +
+                    "No CSV will be written for this run.", tradeDate);
 
                 await runLog.WriteAsync ("ERR",
                     $"Failed to fetch trades for {tradeDate:yyyy-MM-dd} after all retry attempts. No CSV will be written.");
                 throw;
-
                 }
             }
+
+        /// <summary>
+        /// Builds a retry pipeline per extract run.
+        /// Captures runLog and tradeDate so OnRetry can write to both Serilog and the run log file.
+        /// Retries up to 3 times with exponential backoff: 2s → 4s → 8s.
+        /// </summary>
+        private static ResiliencePipeline BuildRetryPipeline (
+            ILogger logger, IExtractLogger runLog, DateTime tradeDate ) =>
+            new ResiliencePipelineBuilder ()
+                .AddRetry (new RetryStrategyOptions
+                    {
+                    MaxRetryAttempts = MaxRetryAttempts,
+                    Delay = TimeSpan.FromSeconds (2),
+                    BackoffType = DelayBackoffType.Exponential,
+                    UseJitter = true,
+                    ShouldHandle = new PredicateBuilder ()
+                                           .Handle<PowerServiceException> ()
+                                           .Handle<HttpRequestException> ()
+                                           .Handle<TaskCanceledException> ()
+                                           .Handle<TimeoutException> (),
+                    OnRetry = args =>
+                    {
+                        logger.LogWarning (
+                            "Retry {RetryAttempt} of {MaxRetries} for {TradeDate:yyyy-MM-dd}. Reason: {Message}",
+                            args.AttemptNumber + 1, MaxRetryAttempts, tradeDate,
+                            args.Outcome.Exception?.Message);
+
+                        return new ValueTask (runLog.WriteAsync ("WRN",
+                         $"Retry {args.AttemptNumber + 1} of {MaxRetryAttempts} for {tradeDate:yyyy-MM-dd}. Reason: {args.Outcome.Exception?.Message}"));
+                    }
+                    })
+                .Build ();
 
         /// <summary>
         /// Iterates every trade and every period, accumulating volumes into a
@@ -127,7 +128,7 @@ namespace PowerPosition.Reporter.Services
                 {
                 if ( trade?.Periods is null )
                     {
-                    _logger.LogWarning ("Trade with null Periods encountered skipping.");
+                    _logger.LogWarning ("Trade with null Periods encountered – skipping.");
                     continue;
                     }
 
@@ -135,7 +136,9 @@ namespace PowerPosition.Reporter.Services
                     {
                     if ( period.Period < 1 || period.Period > 24 )
                         {
-                        _logger.LogWarning ("Skipping out-of-range period {Period}.", period.Period);
+                        _logger.LogWarning (
+                            "Skipping out-of-range period {Period} on trade {TradeId}.",
+                            period.Period, trade.TradeId);
                         continue;
                         }
                     aggregated[period.Period] += period.Volume;
@@ -149,13 +152,13 @@ namespace PowerPosition.Reporter.Services
         /// Skips trades with null Periods — they are already warned about in AggregateByPeriod.
         /// </summary>
         private static async Task LogTradeVolumesAsync (
-                   List<PowerTrade> trades, IExtractLogger runLog )
+            List<PowerTrade> trades, IExtractLogger runLog )
             {
             foreach ( var trade in trades.Where (t => t?.Periods is not null) )
                 {
                 var volumes = trade.Periods
-            .OrderBy(p => p.Period)
-            .Select(p => p.Volume.ToString("F1").PadLeft(7));
+                    .OrderBy(p => p.Period)
+                    .Select(p => p.Volume.ToString("F1").PadLeft(7));
 
                 await runLog.WriteAsync ("INF", $"Trade {trade.TradeId}:");
                 await runLog.WriteAsync ("INF", $"[ {string.Join (" | ", volumes)} ]");
@@ -169,21 +172,19 @@ namespace PowerPosition.Reporter.Services
         private static List<PowerTradePosition> MapToPositions ( Dictionary<int, double> aggregated )
             {
             var dayStart = new TimeOnly(23, 0);
-            var result = new List<PowerTradePosition>(24);
+            var result   = new List<PowerTradePosition>(24);
 
             foreach ( var (periodNumber, totalVolume) in aggregated.OrderBy (p => p.Key) )
                 {
                 // period 1 → 23:00, period 2 → 00:00 ... period 24 → 22:00
-                var    periodTime = dayStart.AddHours(periodNumber - 1);
-                string timeLabel  = periodTime.ToString("HH:mm");
+                var periodTime = dayStart.AddHours(periodNumber - 1);
 
                 result.Add (new PowerTradePosition
                     {
-                    LocalTime = timeLabel,
+                    LocalTime = periodTime.ToString ("HH:mm"),
                     Volume = totalVolume
                     });
                 }
-
             return result;
             }
         }

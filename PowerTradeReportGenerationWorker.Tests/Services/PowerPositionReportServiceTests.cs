@@ -129,14 +129,20 @@ namespace PowerPosition.Reporter.Tests.Services
         public async Task GetAggregatedPositionsAsync_ShouldThrow_WhenPowerServiceThrowsHttpException ( )
             {
             var tradeDate = DateTime.Today;
+            var callCount = 0;
             _powerServiceMock
                 .Setup (s => s.GetTradesAsync (tradeDate))
-                .ThrowsAsync (new HttpRequestException ("503 Service Unavailable"));
+                .ReturnsAsync (( ) =>
+                {
+                    callCount++;
+                    throw new HttpRequestException ("503 Service Unavailable");
+                });
 
-            Func<Task> act = () =>
-                _service.GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+            Func<Task> act = () => _service
+        .GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
 
             await act.Should ().ThrowAsync<HttpRequestException> ();
+            callCount.Should ().Be (4, "HttpRequestException must be retried 3 times");
             }
 
         [Fact]
@@ -160,17 +166,92 @@ namespace PowerPosition.Reporter.Tests.Services
             }
 
         [Fact]
-        public async Task GetAggregatedPositionsAsync_ShouldThrow_WhenPowerServiceThrowsTaskCanceled ( )
+        public async Task FetchTrades_LogsRetryWarning_ForEachRetryAttempt ( )
             {
             var tradeDate = DateTime.Today;
             _powerServiceMock
                 .Setup (s => s.GetTradesAsync (tradeDate))
-                .ThrowsAsync (new TaskCanceledException ("Request timed out"));
+                .ThrowsAsync (new PowerServiceException ("Always fails"));
 
-            Func<Task> act = () =>
-                _service.GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+            Func<Task> act = () => _service
+        .GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+
+            await act.Should ().ThrowAsync<PowerServiceException> ();
+
+            _runLogMock.Verify (
+                l => l.WriteAsync ("WRN", It.Is<string> (m => m.Contains ("Retry 1 of 3"))),
+                Times.Once);
+            _runLogMock.Verify (
+                l => l.WriteAsync ("WRN", It.Is<string> (m => m.Contains ("Retry 2 of 3"))),
+                Times.Once);
+            _runLogMock.Verify (
+                l => l.WriteAsync ("WRN", It.Is<string> (m => m.Contains ("Retry 3 of 3"))),
+                Times.Once);
+            }
+
+        [Fact]
+        public async Task FetchTrades_SucceedsOnSecondAttempt_NoErrLogged ( )
+            {
+            var callCount = 0;
+            var tradeDate = DateTime.Today;
+            _powerServiceMock
+                .Setup (s => s.GetTradesAsync (tradeDate))
+                .ReturnsAsync (( ) =>
+                {
+                    callCount++;
+                    if ( callCount == 1 ) throw new PowerServiceException ("Transient");
+                    return Array.Empty<PowerTrade> ();
+                });
+
+            var result = await _service
+                .GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+
+            result.Should ().HaveCount (24);
+            callCount.Should ().Be (2, "should succeed on the second attempt");
+            _runLogMock.Verify (
+                l => l.WriteAsync ("ERR", It.IsAny<string> ()),
+                Times.Never, "no ERR must be logged when the call eventually succeeds");
+            }
+
+        [Fact]
+        public async Task FetchTrades_DoesNotRetry_OnNonTransientException ( )
+            {
+            var callCount = 0;
+            var tradeDate = DateTime.Today;
+            _powerServiceMock
+                .Setup (s => s.GetTradesAsync (tradeDate))
+                .ReturnsAsync (( ) =>
+                {
+                    callCount++;
+                    throw new InvalidOperationException ("Non-transient");
+                });
+
+            Func<Task> act = () => _service
+                .GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+
+            await act.Should ().ThrowAsync<InvalidOperationException> ();
+            callCount.Should ().Be (1, "non-transient exceptions must not be retried at all");
+            }
+
+
+        [Fact]
+        public async Task GetAggregatedPositionsAsync_ShouldThrow_WhenPowerServiceThrowsTaskCanceled ( )
+            {
+            var tradeDate = DateTime.Today;
+            var callCount = 0;
+            _powerServiceMock
+                .Setup (s => s.GetTradesAsync (tradeDate))
+                .ReturnsAsync (( ) =>
+                {
+                    callCount++;
+                    throw new TaskCanceledException ("Request timed out");
+                });
+
+            Func<Task> act = () => _service
+        .GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
 
             await act.Should ().ThrowAsync<TaskCanceledException> ();
+            callCount.Should ().Be (4, "TaskCanceledException must be retried 3 times");
             }
 
         private static void SetVolume ( PowerTrade trade, int periodIndex, double volume )
