@@ -337,6 +337,39 @@ dotnet test --collect:"XPlat Code Coverage"
 
 ---
 
+## Resilience — Polly Retry Policy
+
+Trade fetching is wrapped in a [Polly](https://github.com/App-vNext/Polly) resilience pipeline to handle transient failures from the external `PowerService`.
+
+### Policy configuration
+
+| Setting | Value |
+|---|---|
+| Max retry attempts | 3 |
+| Base delay | 2 seconds |
+| Backoff type | Exponential with jitter |
+| Effective delays | ~2 s → ~4 s → ~8 s (plus random jitter) |
+
+### Handled exceptions
+
+| Exception | Reason |
+|---|---|
+| `PowerServiceException` | Native error type from the trading system API |
+| `HttpRequestException` | Network-level connectivity failures |
+| `TaskCanceledException` | Request timeouts |
+| `TimeoutException` | General timeout faults |
+
+### Behaviour
+
+- The **first attempt** is made immediately with no delay.
+- On failure, Polly waits the calculated backoff period and retries automatically.
+- Each retry is logged as a warning in both the console log and the per-run audit log file.
+- If all 3 retries are exhausted, the exception propagates — no CSV is written for that run, and the error is recorded in the audit log. The scheduler continues normally and will retry on the next interval tick.
+
+```
+Attempt 1 ──(fail)──► wait ~2s ──► Attempt 2 ──(fail)──► wait ~4s ──► Attempt 3 ──(fail)──► wait ~8s ──► Attempt 4 ──(fail)──► throw
+```
+
 ## Dependencies
 
 | Package | Purpose |
@@ -344,6 +377,7 @@ dotnet test --collect:"XPlat Code Coverage"
 | `Microsoft.Extensions.Hosting` | Background service host, dependency injection, configuration |
 | `Serilog` + sinks | Structured console and file logging |
 | `CsvHelper` | CSV file writing |
+| `Polly` (`Polly.Extensions`) | Transient-fault resilience — retry with exponential backoff |
 | `PowerService.dll` | External power trading system API (pre-built) |
 | `xunit` + `Moq` + `FluentAssertions` | Unit testing |
 
