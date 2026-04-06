@@ -70,25 +70,27 @@ namespace PowerPosition.Reporter.Services
             _logger.LogInformation (
                 "Fetching trades from PowerService for date {TradeDate:yyyy-MM-dd}.", tradeDate);
 
-            var attempt = 0;
+            var retryCount = 0;
 
             try
                 {
 
                 var trades = await RetryPipeline.ExecuteAsync(async ct =>
                 {
-                    attempt++;
-                    if (attempt > 1)
+                    if (retryCount > 0)
                         {
                         _logger.LogWarning(
-                            "Retry attempt {Attempt} of 3 for trade date {TradeDate:yyyy-MM-dd}.",
-                            attempt - 1 , tradeDate);
+                    "Retry attempt {Attempt} of 3 for trade date {TradeDate:yyyy-MM-dd}.",
+                    retryCount, tradeDate);
 
                         await runLog.WriteAsync("WRN",
-                            $"Retry attempt {attempt} of 3 for {tradeDate:yyyy-MM-dd}.");
+                    $"Retry attempt {retryCount} of 3 for {tradeDate:yyyy-MM-dd}.");
                         }
 
-                    return await _powerService.GetTradesAsync(tradeDate);
+                    var result = await _powerService.GetTradesAsync(tradeDate);
+                    retryCount++;
+
+                    return result;
                 });
 
                 var tradeList = trades?.ToList() ?? [];
