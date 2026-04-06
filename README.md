@@ -1,6 +1,8 @@
 # ⚡ PowerPosition.Reporter
 
-A .NET 8 background worker service that automatically extracts, aggregates, and exports power trading positions to CSV on a configurable schedule.
+> A .NET 8 background worker that fetches power trading positions, aggregates them by clock hour,
+> and exports the results to a timestamped CSV — automatically, on a configurable schedule,
+> with full audit logging on every run.
 
 ---
 
@@ -14,7 +16,6 @@ A .NET 8 background worker service that automatically extracts, aggregates, and 
 - [CLI Commands](#cli-commands)
 - [Output Files](#output-files)
 - [Period → Time Mapping](#period--time-mapping)
-- [Running the App](#running-the-app)
 - [Running Tests](#running-tests)
 - [Design Principles](#design-principles)
 - [Dependencies](#dependencies)
@@ -23,33 +24,31 @@ A .NET 8 background worker service that automatically extracts, aggregates, and 
 
 ## Overview
 
-**PowerPosition.Reporter** connects to `PowerService.dll` (an external power trading API), fetches all trades for the current day, aggregates volumes by clock hour, and writes the results to a timestamped CSV file. It then repeats this on a fixed interval — forever, until stopped.
+**PowerPosition.Reporter** connects to the power trading system, fetches all trades for the current day, aggregates volumes by clock hour, and writes the results to a timestamped CSV file. It then waits a configured interval and repeats — forever, until stopped.
 
-Every run — whether it succeeds or fails — also writes a detailed `.log` file for auditing.
+Every run — whether it succeeds or fails — also produces a detailed audit log file.
 
 ```
-PowerService.dll → fetch trades → aggregate by hour → write CSV + log file
-                                                              ↑
-                                              repeats every N minutes
+Trading System → fetch trades → aggregate by hour → write CSV + audit log
+                                                            ↑
+                                            repeats every N minutes
 ```
 
 ---
 
 ## How It Works
 
+### Startup
+
+1. Loads configuration from the settings file (or CLI overrides)
+2. Validates all required settings — refuses to start if anything is missing or invalid
+3. Locks the timezone to **Europe/London** as required by the specification
+4. Launches the background scheduling loop
+
+### The scheduling loop
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Application Startup                      │
-│  1. Reads config from appsettings.json (+ optional CLI)     │
-│  2. Validates settings — fails fast if anything is wrong    │
-│  3. Sets timezone to Europe/London (hardcoded by spec)      │
-│  4. Starts the background worker                            │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼
-┌─────────────────────────────────────────────────────────────┐
-│              PowerPositionReportWorker (loop)               │
-│                                                             │
 │  ① Run extract immediately on startup                       │
 │  ② Wait IntervalMinutes                                     │
 │  ③ Run extract again                                        │
@@ -57,20 +56,17 @@ PowerService.dll → fetch trades → aggregate by hour → write CSV + log file
 │                                                             │
 │  ⚠ If an extract fails, the error is logged and the        │
 │    scheduler continues — it never crashes the service.      │
-└────────────────────────┬────────────────────────────────────┘
-                         │
-                         ▼ (each extract run)
-┌─────────────────────────────────────────────────────────────┐
-│                     One Extract Run                         │
-│                                                             │
-│  1. Resolve trade date (see Period → Time Mapping)          │
-│  2. Call PowerService.GetTradesAsync(tradeDate)             │
-│  3. Aggregate volumes across all trades by period (1–24)    │
-│  4. Map period numbers → HH:mm time labels                  │
-│  5. Write  PowerPosition_YYYYMMDD_HHmm.csv                  │
-│  6. Write  PowerPosition_YYYYMMDD_HHmm.log  (always)        │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+### Each extract run
+
+1. Resolve the correct trade date from the Europe/London local clock
+2. Fetch all trades from the trading system for that date
+3. Sum volumes across all trades, grouped by period (1–24)
+4. Map period numbers to HH:mm time labels
+5. Write the CSV report *(only on success)*
+6. Write the audit log file *(always)*
 
 ---
 
@@ -80,111 +76,59 @@ PowerService.dll → fetch trades → aggregate by hour → write CSV + log file
 Axpo.PowerPosition.Reporter/
 │
 ├── PowerTradeReportGenerationWorker/          ← Main application
+│   ├── Program.cs                             ← Entry point & startup configuration
+│   ├── PowerPositionReportWorker.cs           ← Background scheduling loop
+│   ├── ReportSettings.cs                      ← Configuration model
+│   ├── appsettings.json                       ← Default settings
 │   │
-│   ├── Program.cs                             ← App entry point, DI wiring, startup validation
-│   ├── PowerPositionReportWorker.cs           ← Background scheduler (runs the loop)
-│   ├── ReportSettings.cs                      ← Strongly-typed config model
-│   ├── appsettings.json                       ← Default configuration
-│   ├── appsettings.Development.json           ← Dev overrides
-│   │
-│   ├── Models/
-│   │   └── PowerTradePosition.cs              ← Data model: { LocalTime, Volume }
-│   │
+│   ├── Models/                                ← Data models
 │   ├── Services/
-│   │   ├── IPowerPositionReportService.cs     ← Interface for the report service
-│   │   ├── PowerPositionReportService.cs      ← Fetches + aggregates trades
-│   │   │
-│   │   ├── Csv/
-│   │   │   ├── ICsvExportService.cs           ← Interface for CSV writing
-│   │   │   └── CsvReportService.cs            ← Writes the CSV file
-│   │   │
-│   │   ├── Logging/
-│   │   │   ├── IExtractLogger.cs              ← Interface for per-run log writer
-│   │   │   ├── ExtractLogger.cs               ← Writes timestamped lines to a .log file
-│   │   │   └── ExtractLoggerFactory.cs        ← Creates an ExtractLogger for each run
-│   │   │
-│   │   └── TimeProvider/
-│   │       ├── ITimeProvider.cs               ← Interface for time abstraction
-│   │       └── ReportTimeProvider.cs          ← Returns current time in Europe/London
+│   │   ├── PowerPositionReportService.cs      ← Trade fetching & aggregation
+│   │   ├── Csv/                               ← CSV export
+│   │   ├── Logging/                           ← Per-run audit log writer
+│   │   └── TimeProvider/                      ← Europe/London clock abstraction
 │   │
 │   └── lib/
-│       └── PowerService.dll                   ← External trade data provider (pre-built)
+│       └── PowerService.dll                   ← External trading system API
 │
-└── PowerTradeReportGenerationWorker.Tests/    ← Unit tests
+└── PowerTradeReportGenerationWorker.Tests/    ← Unit test suite
     └── Services/
         ├── CsvExportServiceTests.cs
         ├── PowerPositionReportServiceTests.cs
-        └── PowerPositionReportWorkerTests.cs
+        ├── PowerPositionReportWorkerTests.cs
+        └── ReportTimeProviderTests.cs
 ```
 
 ---
 
 ## Services Explained
 
-### `PowerPositionReportWorker`
-**File:** `PowerPositionReportWorker.cs`
-
-The top-level orchestrator. Inherits from .NET's `BackgroundService` and drives the entire loop.
-
-- Runs the extract **immediately** when the app starts
-- Then waits `IntervalMinutes` and repeats
-- Uses `PeriodicTimer` (efficient — no busy-wait)
-- Wraps each run in a try/catch so a single failure **never kills the scheduler**
-- Determines the correct trade date based on Europe/London local time
+### Scheduler
+Drives the entire extract loop. Runs immediately on startup, then repeats on the configured interval. A failed extract is logged and the scheduler carries on — the service never goes down due to a single bad run.
 
 ---
 
-### `PowerPositionReportService`
-**File:** `Services/PowerPositionReportService.cs`
-
-Handles all the business logic for one extract run.
-
-1. Calls `PowerService.GetTradesAsync(tradeDate)` to fetch raw trades
-2. Loops over every trade and every period, summing volumes into a dictionary keyed by period number (1–24)
-3. Pre-seeds all 24 periods to `0.0` — so the CSV always has exactly 24 rows, even on quiet days
-4. Maps period numbers to `HH:mm` time labels (period 1 = `23:00`, period 2 = `00:00`, etc.)
-5. Logs each trade's raw volumes into the per-run `.log` file
-
-> ⚠️ `PowerService` is registered as **transient** (new instance per run), because it is assumed not to be thread-safe.
+### Report Service
+Handles all business logic for one extract. Fetches trades from the trading system, sums volumes across all trades per period, and maps each period to its Europe/London clock-hour label. All 24 periods are always included in the output, even on quiet trading days where some hours have zero volume.
 
 ---
 
-### `CsvExportService`
-**File:** `Services/Csv/CsvReportService.cs`
-
-Writes the aggregated positions to a UTF-8 CSV file using [CsvHelper](https://joshclose.github.io/CsvHelper/).
-
-- Output: `{OutputPath}/PowerPosition_YYYYMMDD_HHmm.csv`
-- Columns: `Local Time`, `Volume`
-- Volumes are rounded to the nearest whole number
-- Only written on **successful** extracts — if fetching or aggregating fails, no CSV is created
+### CSV Export Service
+Writes the aggregated hourly positions to a UTF-8 CSV file. Always produces exactly 24 data rows. Volumes are rounded to the nearest whole number. Only written when the extract completes successfully.
 
 ---
 
-### `ExtractLogger` / `ExtractLoggerFactory`
-**Files:** `Services/Logging/ExtractLogger.cs`, `ExtractLoggerFactory.cs`
-
-A lightweight file logger used for **per-run audit logs**, separate from the main application console log (Serilog).
-
-- Every run creates a new `.log` file: `{OutputPath}/logs/PowerPosition_YYYYMMDD_HHmm.log`
-- Each line is formatted as: `YYYY-MM-DD HH:mm [LEVEL] Message`
-- A log file is **always** created — even if the extract fails — so you always have a record of what happened
-- Errors in the log writer itself are silently swallowed so they never interrupt extraction
+### Audit Logger
+Writes a separate log file for every single run — success or failure. Captures raw trade volumes, aggregation results, and any errors. Completely independent from the main application console log so the two never interfere with each other.
 
 ---
 
-### `ReportTimeProvider`
-**File:** `Services/TimeProvider/ReportTimeProvider.cs`
-
-Abstracts the system clock. Returns the current time converted to **Europe/London** timezone (hardcoded per business specification).
-
-This abstraction makes time-dependent logic fully unit-testable by injecting a mock in tests.
+### Time Provider
+Abstracts the system clock to always return time in **Europe/London** (UTC+0 in winter, UTC+1 during British Summer Time). The machine's local timezone is never used — the timezone is hardcoded to match the business specification. Only UTC input is accepted when converting times; passing any other kind of datetime is rejected immediately to prevent silent data errors on servers in other timezones. This abstraction also makes all time-dependent logic fully testable without relying on the real system clock.
 
 ---
 
 ## Configuration Reference
-
-Configuration lives in `appsettings.json` and can be overridden at runtime via CLI arguments.
 
 ### `appsettings.json`
 
@@ -196,47 +140,43 @@ Configuration lives in `appsettings.json` and can be overridden at runtime via C
   },
   "Serilog": {
     "MinimumLevel": {
-      "Default": "Information",
-      "Override": {
-        "Microsoft": "Warning",
-        "System": "Warning"
-      }
+      "Default": "Information"
     }
   }
 }
 ```
 
-### Settings Table
+### Settings
 
-| Setting | Type | Required | Default | Description |
-|---|---|---|---|---|
-| `ReportSettings:OutputPath` | `string` | ✅ Yes | `"output"` | Folder where CSV reports and log files are written. Can be a relative or absolute path. |
-| `ReportSettings:IntervalMinutes` | `int` | ✅ Yes | `15` | How many minutes to wait between extract runs. Must be greater than 0. |
-| `Serilog:MinimumLevel:Default` | `string` | ❌ No | `"Information"` | Minimum log level for the console output. Options: `Verbose`, `Debug`, `Information`, `Warning`, `Error`, `Fatal`. |
+| Setting | Type | Default | Description |
+|---|---|---|---|
+| `ReportSettings:OutputPath` | string | `"output"` | Folder where CSV and log files are written. Relative or absolute path. |
+| `ReportSettings:IntervalMinutes` | int | `15` | Minutes between each extract run. Must be greater than 0. |
+| `Serilog:MinimumLevel:Default` | string | `"Information"` | Console log verbosity: `Verbose` `Debug` `Information` `Warning` `Error` `Fatal` |
 
-### Validation Rules
+### Startup validation
 
-The app **validates settings at startup** and will refuse to start if:
-- `OutputPath` is empty or missing → `InvalidOperationException`
-- `IntervalMinutes` is 0 or negative → `InvalidOperationException`
+The app refuses to start and prints a clear error if:
+- `OutputPath` is missing or empty
+- `IntervalMinutes` is zero or negative
 
 ---
 
 ## CLI Commands
 
-### Build the project
+### Build
 
 ```bash
 dotnet build
 ```
 
-### Run with default settings (from `appsettings.json`)
+### Run with defaults
 
 ```bash
 dotnet run --project PowerTradeReportGenerationWorker
 ```
 
-### Run with a custom output folder
+### Custom output folder
 
 ```bash
 # Windows
@@ -246,17 +186,13 @@ dotnet run --project PowerTradeReportGenerationWorker --ReportSettings:OutputPat
 dotnet run --project PowerTradeReportGenerationWorker --ReportSettings:OutputPath "/var/reports/power"
 ```
 
-### Run with a custom interval
+### Custom interval
 
 ```bash
-# Run every 30 minutes
 dotnet run --project PowerTradeReportGenerationWorker --ReportSettings:IntervalMinutes 30
-
-# Run every 1 minute (useful for testing)
-dotnet run --project PowerTradeReportGenerationWorker --ReportSettings:IntervalMinutes 1
 ```
 
-### Override both settings at once
+### Both at once
 
 ```bash
 dotnet run --project PowerTradeReportGenerationWorker \
@@ -264,31 +200,23 @@ dotnet run --project PowerTradeReportGenerationWorker \
   --ReportSettings:IntervalMinutes 30
 ```
 
-### Set the log level to Debug (verbose output)
+### Verbose logging
 
 ```bash
-dotnet run --project PowerTradeReportGenerationWorker \
-  --Serilog:MinimumLevel:Default Debug
-```
-
-### Run with environment-specific config
-
-```bash
-# Uses appsettings.Development.json overrides
-DOTNET_ENVIRONMENT=Development dotnet run --project PowerTradeReportGenerationWorker
+dotnet run --project PowerTradeReportGenerationWorker --Serilog:MinimumLevel:Default Debug
 ```
 
 ### Publish a self-contained executable
 
 ```bash
-# Windows x64
+# Windows
 dotnet publish PowerTradeReportGenerationWorker -c Release -r win-x64 --self-contained
 
-# Linux x64
+# Linux
 dotnet publish PowerTradeReportGenerationWorker -c Release -r linux-x64 --self-contained
 ```
 
-### Run the published executable with overrides
+### Run the published binary
 
 ```bash
 # Windows
@@ -300,27 +228,9 @@ dotnet publish PowerTradeReportGenerationWorker -c Release -r linux-x64 --self-c
 
 ---
 
-## Running Tests
-
-```bash
-# Run all unit tests
-dotnet test
-
-# Run with detailed output
-dotnet test --verbosity normal
-
-# Run a specific test project
-dotnet test PowerTradeReportGenerationWorker.Tests
-
-# Run and show test coverage (requires coverlet)
-dotnet test --collect:"XPlat Code Coverage"
-```
-
----
-
 ## Output Files
 
-All files are written to `OutputPath` (default: `./output/`).
+All files are written to the configured `OutputPath` (default: `./output/`).
 
 ### CSV Report
 
@@ -328,8 +238,6 @@ All files are written to `OutputPath` (default: `./output/`).
 output/
 └── PowerPosition_20260402_1430.csv
 ```
-
-**Format:**
 
 ```csv
 Local Time,Volume
@@ -340,20 +248,18 @@ Local Time,Volume
 22:00,1200
 ```
 
-- Always contains exactly **24 rows** (one per clock hour)
+- Always contains exactly **24 rows** — one per clock hour
 - Time labels are in **Europe/London** local time
 - Volumes are rounded to the nearest whole number
 - Only written on successful runs
 
-### Log File
+### Audit Log
 
 ```
 output/
 └── logs/
     └── PowerPosition_20260402_1430.log
 ```
-
-**Format:**
 
 ```
 2026-04-02 14:30 [INF] ======== Report Extract started at 2026-04-02 14:30 (Europe/London) ========
@@ -364,26 +270,56 @@ output/
 2026-04-02 14:30 [INF] === Extract completed successfully. File: PowerPosition_20260402_1430.csv ===
 ```
 
-- Written **for every run**, including failures
+- Written for **every run**, including failures
+- Log levels: `INF`, `WRN`, `ERR`
 - Contains raw per-trade volumes for full auditability
-- Log level is one of: `INF`, `WRN`, `ERR`
 
 ---
 
 ## Period → Time Mapping
 
-The trading day starts at **23:00** of the previous calendar day:
+The trading day starts at **23:00 on the previous calendar day**:
 
-| Period | Local Time (Europe/London) |
-|--------|---------------------------|
-| 1      | 23:00                      |
-| 2      | 00:00                      |
-| 3      | 01:00                      |
-| 4      | 02:00                      |
-| ...    | ...                        |
-| 24     | 22:00                      |
+| Period | Local Time | Period | Local Time |
+|--------|-----------|--------|-----------|
+| 1      | 23:00     | 13     | 11:00     |
+| 2      | 00:00     | 14     | 12:00     |
+| 3      | 01:00     | 15     | 13:00     |
+| 4      | 02:00     | 16     | 14:00     |
+| 5      | 03:00     | 17     | 15:00     |
+| 6      | 04:00     | 18     | 16:00     |
+| 7      | 05:00     | 19     | 17:00     |
+| 8      | 06:00     | 20     | 18:00     |
+| 9      | 07:00     | 21     | 19:00     |
+| 10     | 08:00     | 22     | 20:00     |
+| 11     | 09:00     | 23     | 21:00     |
+| 12     | 10:00     | 24     | 22:00     |
 
-**Trade date resolution:** If the current local time is **23:00 or later**, the trade date is set to **tomorrow's date** — because period 1 (23:00) already belongs to the next trading day.
+**Trade date rule:** If the local clock reads **23:00 or later**, the trade date is set to tomorrow — because period 1 (23:00) already belongs to the next trading day.
+
+---
+
+## Running Tests
+
+```bash
+# Run all tests
+dotnet test
+
+# Detailed output
+dotnet test --verbosity normal
+
+# With code coverage
+dotnet test --collect:"XPlat Code Coverage"
+```
+
+### Test coverage summary
+
+| Test File | Tests | What's Covered |
+|---|---|---|
+| `PowerPositionReportServiceTests` | 13 | Aggregation logic, all 24 period mappings, full spec example, edge cases |
+| `PowerPositionReportWorkerTests` | 13 | Scheduling, trade date resolution, CSV filename format, directory creation |
+| `CsvExportServiceTests` | 10 | File output, header row, volume rounding, overwrite behaviour |
+| `ReportTimeProviderTests` | 9 | Timezone conversion, DST transitions, clock correctness, invalid input rejection |
 
 ---
 
@@ -392,26 +328,24 @@ The trading day starts at **23:00** of the previous calendar day:
 | Principle | How it's applied |
 |---|---|
 | **Fail-safe scheduling** | A failed extract logs the error and the timer continues — the service never crashes |
-| **Fail-safe logging** | Errors inside the log writer are swallowed — logging never interrupts extraction |
-| **Dependency injection** | All services are injected via constructor; easy to mock in tests |
-| **Startup validation** | Bad config causes an immediate, descriptive error at launch — not at runtime |
-| **Time abstraction** | `ITimeProvider` wraps the clock so all time-dependent code is unit-testable |
-| **Separation of concerns** | Scheduling, business logic, CSV writing, and logging are all separate services |
+| **Fail-safe logging** | Errors inside the log writer are swallowed — logging never interrupts an extraction |
+| **Always complete output** | All 24 periods are pre-seeded to zero so the CSV is always a full 24-row report |
+| **Startup validation** | Bad config causes an immediate, descriptive error at launch — not silently at runtime |
+| **Timezone safety** | Europe/London is always enforced regardless of the machine's local timezone setting |
+| **Testable by design** | The clock, trading system, CSV writer, and logger are all swappable — fully mockable in tests |
+| **Separation of concerns** | Scheduling, aggregation, CSV writing, timezone handling, and logging are all independent |
 
 ---
 
 ## Dependencies
 
-| Package | Version | Purpose |
-|---|---|---|
-| `Microsoft.Extensions.Hosting` | 10.0.5 | Background service host, DI, configuration |
-| `Serilog` | 4.3.1 | Structured logging framework |
-| `Serilog.Extensions.Hosting` | 10.0.0 | Serilog integration with .NET host |
-| `Serilog.Settings.Configuration` | 10.0.0 | Read Serilog config from `appsettings.json` |
-| `Serilog.Sinks.Console` | 6.1.1 | Console log output |
-| `Serilog.Sinks.File` | 7.0.0 | File log output |
-| `CsvHelper` | 33.1.0 | CSV file writing |
-| `PowerService.dll` | (local) | External power trade data API |
+| Package | Purpose |
+|---|---|
+| `Microsoft.Extensions.Hosting` | Background service host, dependency injection, configuration |
+| `Serilog` + sinks | Structured console and file logging |
+| `CsvHelper` | CSV file writing |
+| `PowerService.dll` | External power trading system API (pre-built) |
+| `xunit` + `Moq` + `FluentAssertions` | Unit testing |
 
 **Requires:** .NET 8 SDK or later
 
@@ -419,5 +353,5 @@ The trading day starts at **23:00** of the previous calendar day:
 
 ## Author
 
-Karn Kumar — karn2802@gmail.com  
+**Karn Kumar** — karn2802@gmail.com  
 Internal project for power position reporting and automation.
