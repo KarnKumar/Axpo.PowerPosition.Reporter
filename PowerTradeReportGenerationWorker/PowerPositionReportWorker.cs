@@ -11,20 +11,22 @@ namespace PowerPosition.Reporter;
 /// Runs immediately on start, then repeats every <see cref="ReportSettings.IntervalMinutes"/>.
 /// </summary>
 public sealed class PowerPositionReportWorker (
-    IPowerPositionReportService _positionReportService,
-    IExtractLoggerFactory _loggerFactory,
-    ICsvExportService csvExportService,
+    IPowerPositionReportService positionReportService,
+    IExtractLoggerFactory loggerFactory,
+    ICsvReportService csvExportService,
     ITimeProvider timeProvider,
     IOptions<ReportSettings> settings,
     ILogger<PowerPositionReportWorker> logger) : BackgroundService
     {
 
-    private readonly IPowerPositionReportService  _positionReportService = _positionReportService;
-    private readonly IExtractLoggerFactory         _loggerFactory = _loggerFactory;
-    private readonly ICsvExportService            _csvExportService = csvExportService;
+    private readonly IPowerPositionReportService  _positionReportService = positionReportService;
+    private readonly IExtractLoggerFactory         _loggerFactory = loggerFactory;
+    private readonly ICsvReportService            _csvExportService = csvExportService;
     private readonly ReportSettings               _settings = settings.Value;
     private readonly ILogger<PowerPositionReportWorker> _logger = logger;
     private readonly ITimeProvider               _timeProvider = timeProvider;
+
+    private const int TradingDayStartHour = 23;
     protected override async Task ExecuteAsync ( CancellationToken stoppingToken )
         {
 
@@ -161,7 +163,7 @@ public sealed class PowerPositionReportWorker (
     /// so when the local clock reads 23:xx we treat the next calendar date as the trade date.
     /// </summary>
     private static DateTime ResolveTradeDate ( DateTimeOffset extractLocal )
-     => extractLocal.Hour >= 23
+     => extractLocal.Hour >= TradingDayStartHour
          ? extractLocal.Date.AddDays (1)
          : extractLocal.Date;
 

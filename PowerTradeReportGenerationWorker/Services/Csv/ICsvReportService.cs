@@ -5,7 +5,7 @@ namespace PowerPosition.Reporter.Services.Csv
     /// <summary>
     /// Writes aggregated hourly positions to a CSV file.
     /// </summary>
-    public interface ICsvExportService
+    public interface ICsvReportService
         {
         /// <summary>
         /// WriteAsync writes the given positions to a CSV file in the configured output directory.

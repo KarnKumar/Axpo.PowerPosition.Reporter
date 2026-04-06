@@ -20,7 +20,7 @@ namespace PowerPosition.Reporter.Services.Csv
     /// where date/time is the local extract time.
     /// </summary>
     public sealed class CsvExportService ( IOptions<ReportSettings> settings,
-                            ILogger<CsvExportService> logger ) : ICsvExportService
+                            ILogger<CsvExportService> logger ) : ICsvReportService
         {
         private readonly ReportSettings _settings = settings.Value;
         private readonly ILogger<CsvExportService> _logger = logger;

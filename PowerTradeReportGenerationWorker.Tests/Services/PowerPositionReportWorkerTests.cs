@@ -15,7 +15,7 @@ public sealed class PowerPositionReportWorkerTests : IDisposable
     private readonly Mock<IPowerPositionReportService>        _positionServiceMock = new();
     private readonly Mock<IExtractLoggerFactory>              _loggerFactoryMock   = new();
     private readonly Mock<IExtractLogger>                     _runLogMock          = new();
-    private readonly Mock<ICsvExportService>                  _csvServiceMock      = new();
+    private readonly Mock<ICsvReportService>                  _csvServiceMock      = new();
     private readonly Mock<ITimeProvider>                      _timeProviderMock    = new();
     private readonly Mock<IOptions<ReportSettings>>           _optionsMock         = new();
     private readonly Mock<ILogger<PowerPositionReportWorker>> _appLoggerMock       = new();

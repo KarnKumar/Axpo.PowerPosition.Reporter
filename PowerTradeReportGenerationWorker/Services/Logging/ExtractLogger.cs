@@ -1,33 +1,53 @@
 ﻿using System.Text;
 
-namespace PowerPosition.Reporter.Services.Logging
+namespace PowerPosition.Reporter.Services.Logging;
+
+public sealed class ExtractLogger : IExtractLogger
     {
-    public sealed class ExtractLogger : IExtractLogger
+    private readonly FileStream   _fs;
+    private readonly StreamWriter _writer;
+    private bool _disposed;
+
+    public ExtractLogger ( string filePath )
         {
-        private readonly StreamWriter _writer;
+        _fs = new FileStream (filePath, FileMode.Create, FileAccess.Write,
+                                 FileShare.Read, bufferSize: 4096, useAsync: true);
+        _writer = new StreamWriter (_fs, Encoding.UTF8);
+        }
 
-        public ExtractLogger ( string filePath )
-            {
-            var fs = new FileStream(filePath, FileMode.Create, FileAccess.Write, FileShare.Read);
-            _writer = new StreamWriter (fs, Encoding.UTF8) { AutoFlush = true };
-            }
+    public async Task WriteAsync ( string level, string message )
+        {
+        if ( _disposed ) return;
 
-        public async Task WriteAsync ( string level, string message )
+        var line = $"{DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss}Z [{level}] {message}";
+        try
             {
-            var line = $"{DateTimeOffset.Now:yyyy-MM-dd HH:mm} [{level}] {message}";
-            try { await _writer.WriteLineAsync (line); }
-            catch {  }
+            await _writer.WriteLineAsync (line);
             }
+        catch ( Exception ex )
+            {
+            Console.Error.WriteLine ($"[ExtractLogger] Write failed: {ex.Message}");
+            }
+        }
 
-        public async Task FlushAsync ( )
+    public async Task FlushAsync ( )
+        {
+        if ( _disposed ) return;
+        try
             {
-            try { await _writer.FlushAsync (); }
-            catch { }
+            await _writer.FlushAsync ();
+            await _fs.FlushAsync ();        
             }
+        catch ( Exception ex )
+            {
+            Console.Error.WriteLine ($"[ExtractLogger] Flush failed: {ex.Message}");
+            }
+        }
 
-        public async ValueTask DisposeAsync ( )
-            {
-            await _writer.DisposeAsync ();
-            }
+    public async ValueTask DisposeAsync ( )
+        {
+        if ( _disposed ) return;
+        _disposed = true;
+        await _writer.DisposeAsync ();   
         }
     }

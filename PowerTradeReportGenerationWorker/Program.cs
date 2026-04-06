@@ -1,4 +1,5 @@
 ﻿using Axpo;
+using Microsoft.Extensions.Options;
 using PowerPosition.Reporter;
 using PowerPosition.Reporter.Services;
 using PowerPosition.Reporter.Services.Csv;
@@ -27,22 +28,14 @@ try
 
     // validation to check required settings are present and valid at startup
     builder.Services.AddOptions<ReportSettings> ()
-        .Bind (builder.Configuration.GetSection ("ReportSettings"))
-        .Validate (r =>
-        {
-            if ( string.IsNullOrWhiteSpace (r.OutputPath) )
-                throw new InvalidOperationException (
-                    "ReportSettings.OutputPath is missing or empty. " +
-                    "Set it in appsettings.json or via --ReportSettings:OutputPath.");
-
-            if ( r.IntervalMinutes <= 0 )
-                throw new InvalidOperationException (
-                    $"ReportSettings.IntervalMinutes must be greater than 0 (current value: {r.IntervalMinutes}). " +
-                    "Set it in appsettings.json or via --ReportSettings:IntervalMinutes.");
-
-            return true;
-        })
-        .ValidateOnStart ();
+     .Bind (builder.Configuration.GetSection ("ReportSettings"))
+     .Validate (r => !string.IsNullOrWhiteSpace (r.OutputPath),
+               "ReportSettings.OutputPath is missing or empty.")
+     .Validate (r => r.IntervalMinutes > 0,
+               "ReportSettings.IntervalMinutes must be > 0.")
+     .Validate (r => r.IntervalMinutes <= 1440,
+               "ReportSettings.IntervalMinutes must be <= 1440 (24 hours).")
+     .ValidateOnStart ();
 
     // The business specification mandates Europe/ London (wall - clock / local time).
     // TimeZoneInfo.Local is intentionally NOT used.
@@ -55,20 +48,35 @@ try
     builder.Services.AddTransient<IPowerPositionReportService, PowerPositionReportService> ();
 
     // Singleton is efficient → no need to recreate every time
-    builder.Services.AddSingleton<ICsvExportService, CsvExportService> ();
+    builder.Services.AddSingleton<ICsvReportService, CsvExportService> ();
 
-    // standared pattern in .NET
+    // standard pattern in .NET
     builder.Services.AddSingleton<IExtractLoggerFactory, ExtractLoggerFactory> ();
 
     builder.Services.AddHostedService<PowerPositionReportWorker> ();
 
-    await builder.Build ().RunAsync ();
+    var app = builder.Build();
+    // Eagerly resolve to trigger ValidateOnStart before the host runs
+    _ = app.Services.GetRequiredService<IOptionsMonitor<ReportSettings>> ().CurrentValue;
+
+    await app.RunAsync ();
+
     }
-catch ( Exception ex ) when ( ex is not OperationCanceledException )
+   catch ( OptionsValidationException ex )
     {
-    Log.Fatal (ex, "Application terminated unexpectedly");
+    foreach ( var failure in ex.Failures )
+        Log.Fatal ("  [INVALID] {Failure}", failure);
+
+    Log.Fatal ("Power Position Reporter could not start — one or more required settings are missing or invalid. Correct the configuration and restart the service.");
+    Environment.Exit (1);
     }
-finally
+   catch ( Exception ex ) when ( ex is not OperationCanceledException )
+    {
+    Log.Fatal (ex, "Power Position Reporter stopped unexpectedly due to an unhandled {ExceptionType}. No further reports will be generated until the service is restarted.",
+        ex.GetType ().Name);
+    Environment.Exit (1);
+    }
+   finally
     {
     await Log.CloseAndFlushAsync ();
     }

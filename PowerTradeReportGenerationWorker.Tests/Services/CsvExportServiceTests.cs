@@ -30,7 +30,7 @@ namespace PowerPosition.Reporter.Tests.Services
                 Directory.Delete (_tempDir, recursive: true);
             }
 
-        private ICsvExportService CreateService ( string? outputPath = null )
+        private ICsvReportService CreateService ( string? outputPath = null )
             {
             var settings = new ReportSettings
                 {

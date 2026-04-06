@@ -34,7 +34,9 @@ namespace PowerPosition.Reporter.Services
 
             var trades = await FetchTradesAsync(tradeDate,runLog);
 
-            var aggregated = await AggregateByPeriodAsync(trades, runLog);
+            await LogTradeVolumesAsync (trades, runLog);
+
+            var aggregated = AggregateByPeriod(trades);
 
             var positions = MapToPositions(aggregated);
 
@@ -64,7 +66,7 @@ namespace PowerPosition.Reporter.Services
                 _logger.LogError (ex,
                     "Failed to fetch trades for {TradeDate:yyyy-MM-dd}. " +
                     "No CSV will be written for this run.", tradeDate);
-                await runLog.WriteAsync ("INF", "Failed to fetch trades for {{TradeDate:yyyy-MM-dd}}." +
+                await runLog.WriteAsync ("INF", "Failed to fetch trades for {TradeDate:yyyy-MM-dd}." +
                     " No CSV will be written for this run.");
                 throw;
                 }
@@ -76,54 +78,47 @@ namespace PowerPosition.Reporter.Services
         /// All 24 periods are pre-seeded to 0.0 so the CSV always contains a
         /// full 24-row table, even when some periods have no trades.
         /// </summary>
-        private async Task<Dictionary<int, double>> AggregateByPeriodAsync (
-            List<PowerTrade> trades, IExtractLogger runLog )
+        private Dictionary<int, double> AggregateByPeriod ( List<PowerTrade> trades )
             {
-            var aggregated = Enumerable.Range(1, 24)
-                                       .ToDictionary(p => p, _ => 0.0);
+            var aggregated = Enumerable.Range(1, 24).ToDictionary(p => p, _ => 0.0);
 
             foreach ( var trade in trades )
                 {
-
                 if ( trade?.Periods is null )
                     {
-                    _logger.LogWarning ("Trade with null Periods encountered – skipping.");
+                    _logger.LogInformation ("Trade with null Periods encountered skipping.");
                     continue;
                     }
 
-                await LogTradeVolumesAsync (trade, runLog);
-
                 foreach ( var period in trade.Periods )
                     {
-
                     if ( period.Period < 1 || period.Period > 24 )
                         {
-                        _logger.LogWarning (
-                            "Skipping out-of-range period {Period} on trade {TradeId}.",
-                            period.Period, trade.TradeId);
+                        _logger.LogInformation ("Skipping out-of-range period {Period}.", period.Period);
                         continue;
                         }
-
                     aggregated[period.Period] += period.Volume;
                     }
                 }
-
             return aggregated;
             }
 
         /// <summary>
-        /// Writes a single trade's raw period volumes as a readable bar
-        /// into the per-run log file.
-        /// Example:  Trade 42: [  100.0 |   50.0 |  -20.0 | ... ]
+        /// Writes every trade's raw period volumes to the per-run log file.
+        /// Skips trades with null Periods — they are already warned about in AggregateByPeriod.
         /// </summary>
-        private static async Task LogTradeVolumesAsync ( PowerTrade trade, IExtractLogger runLog )
+        private static async Task LogTradeVolumesAsync (
+                   List<PowerTrade> trades, IExtractLogger runLog )
             {
-            var volumes = trade.Periods
-                .OrderBy(p => p.Period)
-                .Select(p => p.Volume.ToString("F1").PadLeft(7)); // F1 is to give space padding.
+            foreach ( var trade in trades.Where (t => t?.Periods is not null) )
+                {
+                var volumes = trade.Periods
+            .OrderBy(p => p.Period)
+            .Select(p => p.Volume.ToString("F1").PadLeft(7));
 
-            await runLog.WriteAsync ("INF", $"Trade {trade.TradeId}:");
-            await runLog.WriteAsync ("INF", $"[ {string.Join (" | ", volumes)} ]");
+                await runLog.WriteAsync ("INF", $"Trade {trade.TradeId}:");
+                await runLog.WriteAsync ("INF", $"[ {string.Join (" | ", volumes)} ]");
+                }
             }
 
         /// <summary>
