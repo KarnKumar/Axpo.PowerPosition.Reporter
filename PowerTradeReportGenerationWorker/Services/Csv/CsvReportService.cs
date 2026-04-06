@@ -56,8 +56,8 @@ namespace PowerPosition.Reporter.Services.Csv
 
                 await writer.FlushAsync ();
 
-                _logger.LogInformation (
-                    "# Power Position Report Generated successfully! Path:{FullPath}", filePath);
+                _logger.LogInformation ("Power Position Report generated successfully." +
+                    " Path: {FullPath}", filePath);
                 }
             catch ( DirectoryNotFoundException ex )
                 {

@@ -1,4 +1,5 @@
-﻿using System.Text;
+﻿using PowerPosition.Reporter.Services.TimeProvider;
+using System.Text;
 
 namespace PowerPosition.Reporter.Services.Logging;
 
@@ -6,10 +7,14 @@ public sealed class ExtractLogger : IExtractLogger
     {
     private readonly FileStream   _fs;
     private readonly StreamWriter _writer;
+    private readonly ITimeProvider _timeProvider;
     private bool _disposed;
 
-    public ExtractLogger ( string filePath )
+    public ExtractLogger ( string filePath, ITimeProvider timeProvider )
         {
+        _timeProvider = timeProvider
+            ?? throw new ArgumentNullException (nameof (timeProvider));
+
         _fs = new FileStream (filePath, FileMode.Create, FileAccess.Write,
                                  FileShare.Read, bufferSize: 4096, useAsync: true);
         _writer = new StreamWriter (_fs, Encoding.UTF8);
@@ -19,7 +24,7 @@ public sealed class ExtractLogger : IExtractLogger
         {
         if ( _disposed ) return;
 
-        var line = $"{DateTimeOffset.UtcNow:yyyy-MM-dd HH:mm:ss}Z [{level}] {message}";
+        var line = $"{_timeProvider.LocalNow:yyyy-MM-dd HH:mm}Z [{level}] {message}";
         try
             {
             await _writer.WriteLineAsync (line);

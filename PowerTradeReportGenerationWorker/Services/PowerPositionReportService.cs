@@ -43,12 +43,7 @@ namespace PowerPosition.Reporter.Services
                                            .Handle<TaskCanceledException>()
                                            .Handle<TimeoutException>()
                                            .Handle<PowerServiceException>(),  // Handle Power Service exception here.
-                                      
-                    OnRetry = args =>
-                    {
-                        // logged inside ExecuteAsync via _logger — see FetchTradesAsync
-                        return ValueTask.CompletedTask;
-                    }
+                    
                     })
                 .Build();
 
@@ -87,7 +82,7 @@ namespace PowerPosition.Reporter.Services
                         {
                         _logger.LogWarning(
                             "Retry attempt {Attempt} of 3 for trade date {TradeDate:yyyy-MM-dd}.",
-                            attempt, tradeDate);
+                            attempt - 1 , tradeDate);
 
                         await runLog.WriteAsync("WRN",
                             $"Retry attempt {attempt} of 3 for {tradeDate:yyyy-MM-dd}.");
@@ -130,7 +125,7 @@ namespace PowerPosition.Reporter.Services
                 {
                 if ( trade?.Periods is null )
                     {
-                    _logger.LogInformation ("Trade with null Periods encountered skipping.");
+                    _logger.LogWarning ("Trade with null Periods encountered skipping.");
                     continue;
                     }
 
@@ -138,7 +133,7 @@ namespace PowerPosition.Reporter.Services
                     {
                     if ( period.Period < 1 || period.Period > 24 )
                         {
-                        _logger.LogInformation ("Skipping out-of-range period {Period}.", period.Period);
+                        _logger.LogWarning ("Skipping out-of-range period {Period}.", period.Period);
                         continue;
                         }
                     aggregated[period.Period] += period.Volume;

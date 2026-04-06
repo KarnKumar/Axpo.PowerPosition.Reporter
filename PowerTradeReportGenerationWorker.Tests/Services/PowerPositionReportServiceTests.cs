@@ -140,6 +140,26 @@ namespace PowerPosition.Reporter.Tests.Services
             }
 
         [Fact]
+        public async Task GetAggregatedPositionsAsync_RetriesOnPowerServiceException_BeforeThrowing ( )
+            {
+            var tradeDate = DateTime.Today;
+            var callCount = 0;
+
+            _powerServiceMock
+                .Setup (s => s.GetTradesAsync (tradeDate))
+                .ReturnsAsync (( ) =>
+                {
+                    callCount++;
+                    throw new PowerServiceException ("Transient error");
+                });
+
+            Func<Task> act = () => _service.GetAggregatedPositionsAsync(tradeDate, _runLogMock.Object);
+
+            await act.Should ().ThrowAsync<PowerServiceException> ();
+            callCount.Should ().Be (4, "initial attempt + 3 retries = 4 total calls");
+            }
+
+        [Fact]
         public async Task GetAggregatedPositionsAsync_ShouldThrow_WhenPowerServiceThrowsTaskCanceled ( )
             {
             var tradeDate = DateTime.Today;
