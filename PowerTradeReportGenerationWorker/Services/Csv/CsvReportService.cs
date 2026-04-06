@@ -26,9 +26,9 @@ namespace PowerPosition.Reporter.Services.Csv
         private readonly ILogger<CsvExportService> _logger = logger;
 
         /// <inheritdoc />
-        public async Task WriteAsync ( IReadOnlyList<PowerTradePosition> positions, string fileBase )
+        public async Task WriteAsync ( IReadOnlyList<PowerTradePosition> positions, string fileName )
             {
-            var filePath = Path.Combine(_settings.OutputPath, $"{fileBase}.csv");
+            var filePath = Path.Combine(_settings.OutputPath, $"{fileName}.csv");
 
             try
                 {

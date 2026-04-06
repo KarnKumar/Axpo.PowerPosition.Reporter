@@ -34,8 +34,7 @@ try
      .Validate (r => r.IntervalMinutes > 0,
                "ReportSettings.IntervalMinutes must be > 0.")
      .Validate (r => r.IntervalMinutes <= 1440,
-               "ReportSettings.IntervalMinutes must be <= 1440 (24 hours).")
-     .ValidateOnStart ();
+               "ReportSettings.IntervalMinutes must be <= 1440 (24 hours).");
 
     // The business specification mandates Europe/ London (wall - clock / local time).
     // TimeZoneInfo.Local is intentionally NOT used.

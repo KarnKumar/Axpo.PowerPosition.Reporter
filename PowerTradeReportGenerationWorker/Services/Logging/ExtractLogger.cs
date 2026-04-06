@@ -24,7 +24,7 @@ public sealed class ExtractLogger : IExtractLogger
         {
         if ( _disposed ) return;
 
-        var line = $"{_timeProvider.LocalNow:yyyy-MM-dd HH:mm}Z [{level}] {message}";
+        var line = $"{_timeProvider.LocalNow:yyyy-MM-dd HH:mm} [{level}] {message}";
         try
             {
             await _writer.WriteLineAsync (line);
@@ -41,7 +41,6 @@ public sealed class ExtractLogger : IExtractLogger
         try
             {
             await _writer.FlushAsync ();
-            await _fs.FlushAsync ();        
             }
         catch ( Exception ex )
             {
