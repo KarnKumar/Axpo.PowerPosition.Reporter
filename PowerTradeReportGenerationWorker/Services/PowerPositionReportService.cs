@@ -30,7 +30,6 @@ namespace PowerPosition.Reporter.Services
             ?? throw new ArgumentNullException(nameof(logger));
 
         // Retries up to 3 times with exponential backoff: 2s, 4s, 8s
-        // Only retries on transient failures — not on business logic exceptions
         private static readonly ResiliencePipeline RetryPipeline =
             new ResiliencePipelineBuilder()
                 .AddRetry(new RetryStrategyOptions
@@ -42,7 +41,9 @@ namespace PowerPosition.Reporter.Services
                     ShouldHandle     = new PredicateBuilder()
                                            .Handle<HttpRequestException>()
                                            .Handle<TaskCanceledException>()
-                                           .Handle<TimeoutException>(),
+                                           .Handle<TimeoutException>()
+                                           .Handle<PowerServiceException>(),  // Handle Power Service exception here.
+                                      
                     OnRetry = args =>
                     {
                         // logged inside ExecuteAsync via _logger — see FetchTradesAsync
